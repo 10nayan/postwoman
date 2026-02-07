@@ -435,10 +435,9 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
           ],
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         content: Container(
           width: double.maxFinite,
-          height: 500,
+          height: 420,
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: Colors.black26,
