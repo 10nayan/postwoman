@@ -9,6 +9,30 @@ import 'package:video_player/video_player.dart';
 String svgImage = "images/postwoman_bg.svg";
 String videoAsset = "videos/postwoman_video.mp4";
 
+class HistoryItem {
+  final String method;
+  final String url;
+  final String body;
+  final Map<String, String> headers;
+  final int statusCode;
+  final String responseBody;
+  final int responseTimeMs;
+  final double responseSizeKB;
+  final DateTime timestamp;
+
+  HistoryItem({
+    required this.method,
+    required this.url,
+    required this.body,
+    required this.headers,
+    required this.statusCode,
+    required this.responseBody,
+    required this.responseTimeMs,
+    required this.responseSizeKB,
+    required this.timestamp,
+  });
+}
+
 void main() {
   runApp(const MyApp());
 }
@@ -57,6 +81,14 @@ class _MyHomePageState extends State<MyHomePage> {
 
   // Video player controller
   VideoPlayerController? _videoController;
+
+  // Request history
+  final List<HistoryItem> _history = [];
+
+  // Drag tracking for gestures
+  double _dragStartY = 0;
+  double _dragCurrentY = 0;
+  bool _isGestureHandled = false;
 
   @override
   void initState() {
@@ -182,9 +214,13 @@ class _MyHomePageState extends State<MyHomePage> {
       } catch (_) {
         // Not JSON, keep as is
       }
+
+      // Add to history
+      _addToHistory();
     } catch (e) {
       _statusCode = 0;
       _responseBody = 'Error: ${e.toString()}';
+      _addToHistory(); // Record errors too
     }
 
     // Stop video
@@ -200,6 +236,28 @@ class _MyHomePageState extends State<MyHomePage> {
       Navigator.of(context).pop();
       _showResponseDialog();
     }
+  }
+
+  void _addToHistory() {
+    setState(() {
+      _history.insert(
+        0,
+        HistoryItem(
+          method: requestMethod,
+          url: requestUrl,
+          body: requestBody,
+          headers: Map.from(headers),
+          statusCode: _statusCode,
+          responseBody: _responseBody,
+          responseTimeMs: _responseTimeMs,
+          responseSizeKB: _responseSizeKB,
+          timestamp: DateTime.now(),
+        ),
+      );
+      if (_history.length > 5) {
+        _history.removeLast();
+      }
+    });
   }
 
   // Show loading overlay with video
@@ -293,7 +351,7 @@ class _MyHomePageState extends State<MyHomePage> {
           borderRadius: BorderRadius.circular(16),
           side: BorderSide(color: statusColor, width: 1.5),
         ),
-        titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+        titlePadding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
         title: Column(
           children: [
             Row(
@@ -304,15 +362,15 @@ class _MyHomePageState extends State<MyHomePage> {
                     Icon(
                       isSuccess ? Icons.check_circle : Icons.error,
                       color: statusColor,
-                      size: 28,
+                      size: 24,
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 8),
                     Text(
                       'STATUS: $_statusCode',
                       style: TextStyle(
                         color: statusColor,
                         fontWeight: FontWeight.bold,
-                        fontSize: 18,
+                        fontSize: 16,
                       ),
                     ),
                   ],
@@ -323,8 +381,10 @@ class _MyHomePageState extends State<MyHomePage> {
                       icon: const Icon(
                         Icons.copy,
                         color: Colors.white70,
-                        size: 20,
+                        size: 18,
                       ),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
                       onPressed: () {
                         Clipboard.setData(ClipboardData(text: _responseBody));
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -336,12 +396,15 @@ class _MyHomePageState extends State<MyHomePage> {
                       },
                       tooltip: 'Copy',
                     ),
+                    const SizedBox(width: 8),
                     IconButton(
                       icon: const Icon(
                         Icons.share,
                         color: Colors.white70,
-                        size: 20,
+                        size: 18,
                       ),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
                       onPressed: () {
                         Share.share(_responseBody, subject: 'API Response');
                       },
@@ -351,9 +414,9 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.05),
                 borderRadius: BorderRadius.circular(12),
@@ -362,7 +425,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
                   _buildMetric('TIME', '${_responseTimeMs}ms'),
-                  Container(width: 1, height: 20, color: Colors.white24),
+                  Container(width: 1, height: 16, color: Colors.white24),
                   _buildMetric(
                     'SIZE',
                     '${_responseSizeKB.toStringAsFixed(2)}KB',
@@ -372,13 +435,14 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
           ],
         ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         content: Container(
           width: double.maxFinite,
           height: 500,
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: Colors.black26,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(12),
           ),
           child: SingleChildScrollView(
             child: SelectableText(
@@ -392,7 +456,7 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
           ),
         ),
-        actionsPadding: const EdgeInsets.fromLTRB(0, 0, 16, 16),
+        actionsPadding: const EdgeInsets.fromLTRB(0, 0, 12, 12),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -401,7 +465,129 @@ class _MyHomePageState extends State<MyHomePage> {
               style: TextStyle(
                 color: Colors.deepPurple.shade200,
                 fontWeight: FontWeight.bold,
+                fontSize: 14,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showHistoryDialog() {
+    showDialog(
+      context: context,
+      barrierColor: Colors.transparent,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.black.withOpacity(0.70),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.deepPurple.shade300, width: 1.5),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.history, color: Colors.deepPurpleAccent),
+            const SizedBox(width: 8),
+            Text(
+              'Recent History',
+              style: TextStyle(color: Colors.deepPurple.shade100),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: _history.isEmpty
+              ? const Center(
+                  child: Text(
+                    'No history yet',
+                    style: TextStyle(color: Colors.white54),
+                  ),
+                )
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _history.length,
+                  itemBuilder: (context, index) {
+                    final item = _history[index];
+                    final isSuccess =
+                        item.statusCode >= 200 && item.statusCode < 300;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ListTile(
+                        dense: true,
+                        title: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isSuccess
+                                    ? Colors.green.withOpacity(0.2)
+                                    : Colors.red.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                item.method,
+                                style: TextStyle(
+                                  color: isSuccess
+                                      ? Colors.green.shade300
+                                      : Colors.red.shade300,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                item.url,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        subtitle: Text(
+                          'Status: ${item.statusCode} • ${item.responseTimeMs}ms • ${item.timestamp.hour.toString().padLeft(2, '0')}:${item.timestamp.minute.toString().padLeft(2, '0')}',
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 10,
+                          ),
+                        ),
+                        onTap: () {
+                          setState(() {
+                            requestMethod = item.method;
+                            requestUrl = item.url;
+                            requestBody = item.body;
+                            headers = Map.from(item.headers);
+                            _responseBody = item.responseBody;
+                            _statusCode = item.statusCode;
+                            _responseTimeMs = item.responseTimeMs;
+                            _responseSizeKB = item.responseSizeKB;
+                          });
+                          Navigator.pop(context);
+                          _showResponseDialog();
+                        },
+                      ),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Close',
+              style: TextStyle(color: Colors.deepPurple.shade200),
             ),
           ),
         ],
@@ -796,25 +982,73 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Colors.deepPurple.shade900, Colors.black],
+            ),
+          ),
+        ),
         title: Text(
-          widget.title,
+          widget.title.toUpperCase(),
           style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.2,
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 2.0,
+            fontSize: 18,
+          ),
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1.0),
+          child: Container(
+            color: Colors.deepPurpleAccent.withOpacity(0.3),
+            height: 1.0,
           ),
         ),
       ),
       body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onVerticalDragStart: (details) {
+          _dragStartY = details.globalPosition.dy;
+          _dragCurrentY = details.globalPosition.dy;
+          _isGestureHandled = false;
+        },
+        onVerticalDragUpdate: (details) {
+          _dragCurrentY = details.globalPosition.dy;
+        },
         onVerticalDragEnd: (details) {
-          // Swipe up detected (negative velocity means upward)
-          if (details.primaryVelocity != null &&
-              details.primaryVelocity! < -300) {
-            debugPrint('Swipe up detected - Sending API request');
+          if (_isGestureHandled) return;
+
+          final velocity = details.primaryVelocity ?? 0;
+          final screenHeight = MediaQuery.of(context).size.height;
+          final displacement = _dragCurrentY - _dragStartY;
+
+          // Swipe up detected (negative displacement and velocity means upward)
+          // Only trigger request if starting from the bottom 50% of the screen
+          if (displacement < -50 &&
+              velocity < -200 &&
+              _dragStartY > screenHeight * 0.5) {
+            debugPrint(
+              'Swipe up detected - Displacement: $displacement, Velocity: $velocity',
+            );
+            _isGestureHandled = true;
             _sendApiRequest();
+          }
+          // Swipe down detected (positive displacement and velocity means downward)
+          // Only trigger history if starting from the top 50% of the screen
+          else if (displacement > 50 &&
+              velocity > 200 &&
+              _dragStartY < screenHeight * 0.5) {
+            debugPrint(
+              'Swipe down detected - Displacement: $displacement, Velocity: $velocity',
+            );
+            _isGestureHandled = true;
+            _showHistoryDialog();
           }
         },
         child: Stack(
