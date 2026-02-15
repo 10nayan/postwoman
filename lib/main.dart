@@ -5,6 +5,9 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
+import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
+import 'package:flutter_highlight/flutter_highlight.dart';
+import 'package:flutter_highlight/themes/atom-one-dark.dart';
 
 String svgImage = "images/postwoman_bg.svg";
 String videoAsset = "videos/postwoman_video.mp4";
@@ -19,6 +22,7 @@ class HistoryItem {
   final int responseTimeMs;
   final double responseSizeKB;
   final DateTime timestamp;
+  final String contentType;
 
   HistoryItem({
     required this.method,
@@ -30,10 +34,21 @@ class HistoryItem {
     required this.responseTimeMs,
     required this.responseSizeKB,
     required this.timestamp,
+    this.contentType = 'text/plain',
   });
 }
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      systemNavigationBarIconBrightness: Brightness.light,
+    ),
+  );
   runApp(const MyApp());
 }
 
@@ -73,8 +88,8 @@ class _MyHomePageState extends State<MyHomePage> {
   String requestUrl = '';
 
   // Loading state and response
-  bool _isLoading = false;
   String _responseBody = '';
+  String _responseContentType = 'text/plain';
   int _statusCode = 0;
   int _responseTimeMs = 0;
   double _responseSizeKB = 0;
@@ -157,23 +172,20 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> _sendApiRequest() async {
     if (!_validateRequest()) return;
 
-    setState(() {
-      _isLoading = true;
-    });
-
     // Start video playback
     if (_videoController != null) {
       if (!_videoController!.value.isInitialized) {
         await _videoController!.initialize();
       }
+      await _videoController!.setLooping(true);
       await _videoController!.play();
     }
 
     // Show loading overlay
     _showLoadingOverlay();
 
-    // Small delay to allow UI to settle and video to start
-    await Future.delayed(const Duration(milliseconds: 150));
+    // Give more time for the video to start and UI to settle
+    await Future.delayed(const Duration(milliseconds: 500));
 
     final stopwatch = Stopwatch()..start();
 
@@ -211,6 +223,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _responseTimeMs = stopwatch.elapsedMilliseconds;
       _statusCode = response.statusCode;
       _responseBody = response.body;
+      _responseContentType = response.headers['content-type'] ?? 'text/plain';
 
       // Calculate approximate size in KB
       _responseSizeKB = response.bodyBytes.length / 1024.0;
@@ -235,10 +248,6 @@ class _MyHomePageState extends State<MyHomePage> {
     _videoController?.pause();
     _videoController?.seekTo(Duration.zero);
 
-    setState(() {
-      _isLoading = false;
-    });
-
     // Close loading overlay and show response
     if (mounted) {
       Navigator.of(context).pop();
@@ -260,6 +269,7 @@ class _MyHomePageState extends State<MyHomePage> {
           responseTimeMs: _responseTimeMs,
           responseSizeKB: _responseSizeKB,
           timestamp: DateTime.now(),
+          contentType: _responseContentType,
         ),
       );
       if (_history.length > 5) {
@@ -268,95 +278,17 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  // Show loading overlay with video
   void _showLoadingOverlay() {
-    showDialog(
+    showGeneralDialog(
       context: context,
       barrierDismissible: false,
       barrierColor: Colors.black,
-      builder: (context) => WillPopScope(
+      pageBuilder: (context, animation, secondaryAnimation) => WillPopScope(
         onWillPop: () async => false,
-        child: Material(
-          color: Colors.black,
-          child: _videoController == null
-              ? const Center(
-                  child: CircularProgressIndicator(color: Colors.deepPurple),
-                )
-              : ValueListenableBuilder(
-                  valueListenable: _videoController!,
-                  builder: (context, VideoPlayerValue value, child) {
-                    if (value.isInitialized) {
-                      // Ensure video is playing
-                      if (!value.isPlaying && _isLoading) {
-                        _videoController!.play();
-                      }
-                      return Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          SizedBox.expand(
-                            child: FittedBox(
-                              fit: BoxFit.cover,
-                              child: SizedBox(
-                                width: value.size.width,
-                                height: value.size.height,
-                                child: VideoPlayer(_videoController!),
-                              ),
-                            ),
-                          ),
-                          _buildOverlayText(),
-                        ],
-                      );
-                    } else {
-                      return Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          const Center(
-                            child: CircularProgressIndicator(
-                              color: Colors.deepPurple,
-                            ),
-                          ),
-                          _buildOverlayText(),
-                        ],
-                      );
-                    }
-                  },
-                ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOverlayText() {
-    return Positioned(
-      bottom: 60,
-      left: 20,
-      right: 20,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.6),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Sending $requestMethod request...',
-              style: TextStyle(
-                color: Colors.deepPurple.shade100,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              requestUrl,
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+        child: _LoadingOverlayVideo(
+          controller: _videoController,
+          method: requestMethod,
+          url: requestUrl,
         ),
       ),
     );
@@ -370,131 +302,133 @@ class _MyHomePageState extends State<MyHomePage> {
     showDialog(
       context: context,
       barrierColor: Colors.transparent,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.black.withOpacity(0.70),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: statusColor, width: 1.5),
-        ),
-        titlePadding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-        title: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      isSuccess ? Icons.check_circle : Icons.error,
-                      color: statusColor,
-                      size: 24,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'STATUS: $_statusCode',
-                      style: TextStyle(
-                        color: statusColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ],
-                ),
-                Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(
-                        Icons.copy,
-                        color: Colors.white70,
-                        size: 18,
-                      ),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: _responseBody));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Copied to clipboard'),
-                            duration: Duration(seconds: 1),
-                          ),
-                        );
-                      },
-                      tooltip: 'Copy',
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.share,
-                        color: Colors.white70,
-                        size: 18,
-                      ),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: () {
-                        Share.share(_responseBody, subject: 'API Response');
-                      },
-                      tooltip: 'Share',
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
+      builder: (context) {
+        final topPadding =
+            kToolbarHeight + MediaQuery.of(context).padding.top + 8;
+        return AlertDialog(
+          alignment: Alignment.topCenter,
+          insetPadding: EdgeInsets.fromLTRB(12, topPadding, 12, 24),
+          backgroundColor: Colors.black.withOpacity(0.70),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: statusColor, width: 1.5),
+          ),
+          titlePadding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+          title: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildMetric('TIME', '${_responseTimeMs}ms'),
-                  Container(width: 1, height: 16, color: Colors.white24),
-                  _buildMetric(
-                    'SIZE',
-                    '${_responseSizeKB.toStringAsFixed(2)}KB',
+                  Row(
+                    children: [
+                      Icon(
+                        isSuccess ? Icons.check_circle : Icons.error,
+                        color: statusColor,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'STATUS: $_statusCode',
+                        style: TextStyle(
+                          color: statusColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(
+                          Icons.copy,
+                          color: Colors.white70,
+                          size: 18,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: _responseBody));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Copied to clipboard'),
+                              duration: Duration(seconds: 1),
+                            ),
+                          );
+                        },
+                        tooltip: 'Copy',
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(
+                          Icons.share,
+                          color: Colors.white70,
+                          size: 18,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: () {
+                          Share.share(_responseBody, subject: 'API Response');
+                        },
+                        tooltip: 'Share',
+                      ),
+                    ],
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildMetric('TIME', '${_responseTimeMs}ms'),
+                    Container(width: 1, height: 16, color: Colors.white24),
+                    _buildMetric(
+                      'SIZE',
+                      '${_responseSizeKB.toStringAsFixed(2)}KB',
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          content: Container(
+            width: double.maxFinite,
+            height: MediaQuery.of(context).size.height * 0.6,
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.black26,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: _ResponseViewer(
+              body: _responseBody,
+              contentType: _responseContentType,
+            ),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(0, 0, 12, 12),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'CLOSE',
+                style: TextStyle(
+                  color: Colors.deepPurple.shade200,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
             ),
           ],
-        ),
-        content: Container(
-          width: double.maxFinite,
-          height: 420,
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.black26,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: SingleChildScrollView(
-            child: SelectableText(
-              _responseBody,
-              style: const TextStyle(
-                color: Colors.white,
-                fontFamily: 'monospace',
-                fontSize: 13,
-                height: 1.5,
-              ),
-            ),
-          ),
-        ),
-        actionsPadding: const EdgeInsets.fromLTRB(0, 0, 12, 12),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'CLOSE',
-              style: TextStyle(
-                color: Colors.deepPurple.shade200,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -594,12 +528,13 @@ class _MyHomePageState extends State<MyHomePage> {
                             requestBody = item.body;
                             headers = Map.from(item.headers);
                             _responseBody = item.responseBody;
+                            _responseContentType = item.contentType;
                             _statusCode = item.statusCode;
                             _responseTimeMs = item.responseTimeMs;
                             _responseSizeKB = item.responseSizeKB;
+                            Navigator.pop(context);
+                            _showResponseDialog();
                           });
-                          Navigator.pop(context);
-                          _showResponseDialog();
                         },
                       ),
                     );
@@ -1005,6 +940,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -1014,7 +950,10 @@ class _MyHomePageState extends State<MyHomePage> {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Colors.deepPurple.shade900, Colors.black],
+              colors: [
+                Colors.deepPurple.shade900.withOpacity(0.8),
+                Colors.black.withOpacity(0.6),
+              ],
             ),
           ),
         ),
@@ -1154,6 +1093,296 @@ class _MyHomePageState extends State<MyHomePage> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// New dedicated widget for the loading overlay to handle video playback reliably
+class _ResponseViewer extends StatefulWidget {
+  final String body;
+  final String contentType;
+
+  const _ResponseViewer({required this.body, required this.contentType});
+
+  @override
+  State<_ResponseViewer> createState() => _ResponseViewerState();
+}
+
+class _ResponseViewerState extends State<_ResponseViewer> {
+  int _tabIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    bool isJson = widget.contentType.contains('application/json');
+    bool isHtml = widget.contentType.contains('text/html');
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            _buildTab(0, 'Formatted'),
+            _buildTab(1, 'Raw'),
+            if (isHtml) _buildTab(2, 'Preview'),
+          ],
+        ),
+        const Divider(color: Colors.white12),
+        Expanded(
+          child: _tabIndex == 1
+              ? SingleChildScrollView(
+                  child: SelectableText(
+                    widget.body,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontFamily: 'monospace',
+                      fontSize: 13,
+                    ),
+                  ),
+                )
+              : _buildFormattedView(isJson, isHtml),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTab(int index, String label) {
+    bool active = _tabIndex == index;
+    return GestureDetector(
+      onTap: () => setState(() => _tabIndex = index),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: active ? Colors.deepPurpleAccent : Colors.transparent,
+              width: 2,
+            ),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: active ? Colors.deepPurpleAccent : Colors.white70,
+            fontWeight: active ? FontWeight.bold : FontWeight.normal,
+            fontSize: 13,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFormattedView(bool isJson, bool isHtml) {
+    if (_tabIndex == 2 && isHtml) {
+      return Container(
+        color: Colors.white,
+        padding: const EdgeInsets.all(8),
+        child: SingleChildScrollView(
+          child: HtmlWidget(
+            widget.body,
+            textStyle: const TextStyle(color: Colors.black87),
+          ),
+        ),
+      );
+    }
+
+    if (isJson) {
+      // Try to format it for display if it's not already
+      String displayBody = widget.body;
+      try {
+        final jsonData = jsonDecode(widget.body);
+        displayBody = const JsonEncoder.withIndent('  ').convert(jsonData);
+      } catch (_) {}
+
+      return SingleChildScrollView(
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: HighlightView(
+            displayBody,
+            language: 'json',
+            theme: atomOneDarkTheme,
+            padding: const EdgeInsets.all(12),
+            textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+          ),
+        ),
+      );
+    }
+
+    if (isHtml) {
+      return SingleChildScrollView(
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: HighlightView(
+            widget.body,
+            language: 'html',
+            theme: atomOneDarkTheme,
+            padding: const EdgeInsets.all(12),
+            textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+          ),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      child: SelectableText(
+        widget.body,
+        style: const TextStyle(
+          color: Colors.white,
+          fontFamily: 'monospace',
+          fontSize: 13,
+        ),
+      ),
+    );
+  }
+}
+
+class _LoadingOverlayVideo extends StatefulWidget {
+  final VideoPlayerController? controller;
+  final String method;
+  final String url;
+
+  const _LoadingOverlayVideo({
+    required this.controller,
+    required this.method,
+    required this.url,
+  });
+
+  @override
+  State<_LoadingOverlayVideo> createState() => _LoadingOverlayVideoState();
+}
+
+class _LoadingOverlayVideoState extends State<_LoadingOverlayVideo> {
+  @override
+  void initState() {
+    super.initState();
+    _startPlayback();
+  }
+
+  void _startPlayback() async {
+    if (widget.controller != null) {
+      if (!widget.controller!.value.isInitialized) {
+        await widget.controller!.initialize();
+      }
+      await widget.controller!.setLooping(true);
+      await widget.controller!.play();
+      // Force a rebuild once playback starts
+      if (mounted) setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black,
+      child: widget.controller == null
+          ? const Center(
+              child: CircularProgressIndicator(color: Colors.deepPurple),
+            )
+          : ValueListenableBuilder(
+              valueListenable: widget.controller!,
+              builder: (context, VideoPlayerValue value, child) {
+                if (value.isInitialized) {
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      SizedBox.expand(
+                        child: FittedBox(
+                          fit: BoxFit.cover,
+                          child: SizedBox(
+                            width: value.size.width,
+                            height: value.size.height,
+                            child: VideoPlayer(widget.controller!),
+                          ),
+                        ),
+                      ),
+                      _buildHeaderBar(),
+                      _buildOverlayText(),
+                    ],
+                  );
+                } else {
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      const Center(
+                        child: CircularProgressIndicator(
+                          color: Colors.deepPurple,
+                        ),
+                      ),
+                      _buildHeaderBar(),
+                      _buildOverlayText(),
+                    ],
+                  );
+                }
+              },
+            ),
+    );
+  }
+
+  Widget _buildHeaderBar() {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: Container(
+        height: kToolbarHeight + MediaQuery.of(context).padding.top,
+        padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Colors.deepPurple.shade900, Colors.black],
+          ),
+        ),
+        child: const Center(
+          child: Text(
+            'POST WOMAN',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 2.0,
+              fontSize: 18,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOverlayText() {
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
+      child: SafeArea(
+        top: false,
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(20, 0, 20, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.6),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Sending ${widget.method} request...',
+                style: TextStyle(
+                  color: Colors.deepPurple.shade100,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                widget.url,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
         ),
       ),
     );

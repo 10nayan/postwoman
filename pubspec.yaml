@@ -38,6 +38,8 @@ dependencies:
   http: ^1.2.0
   video_player: ^2.8.0
   share_plus: ^10.1.0
+  flutter_widget_from_html_core: ^0.15.1
+  flutter_highlight: ^0.7.0
 
 dev_dependencies:
   flutter_test:
