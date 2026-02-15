@@ -162,10 +162,18 @@ class _MyHomePageState extends State<MyHomePage> {
     });
 
     // Start video playback
-    _videoController?.play();
+    if (_videoController != null) {
+      if (!_videoController!.value.isInitialized) {
+        await _videoController!.initialize();
+      }
+      await _videoController!.play();
+    }
 
     // Show loading overlay
     _showLoadingOverlay();
+
+    // Small delay to allow UI to settle and video to start
+    await Future.delayed(const Duration(milliseconds: 150));
 
     final stopwatch = Stopwatch()..start();
 
@@ -270,68 +278,85 @@ class _MyHomePageState extends State<MyHomePage> {
         onWillPop: () async => false,
         child: Material(
           color: Colors.black,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // Full screen video
-              if (_videoController != null &&
-                  _videoController!.value.isInitialized)
-                SizedBox.expand(
-                  child: FittedBox(
-                    fit: BoxFit.cover,
-                    child: SizedBox(
-                      width: _videoController!.value.size.width,
-                      height: _videoController!.value.size.height,
-                      child: VideoPlayer(_videoController!),
-                    ),
-                  ),
-                )
-              else
-                const Center(
+          child: _videoController == null
+              ? const Center(
                   child: CircularProgressIndicator(color: Colors.deepPurple),
+                )
+              : ValueListenableBuilder(
+                  valueListenable: _videoController!,
+                  builder: (context, VideoPlayerValue value, child) {
+                    if (value.isInitialized) {
+                      // Ensure video is playing
+                      if (!value.isPlaying && _isLoading) {
+                        _videoController!.play();
+                      }
+                      return Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          SizedBox.expand(
+                            child: FittedBox(
+                              fit: BoxFit.cover,
+                              child: SizedBox(
+                                width: value.size.width,
+                                height: value.size.height,
+                                child: VideoPlayer(_videoController!),
+                              ),
+                            ),
+                          ),
+                          _buildOverlayText(),
+                        ],
+                      );
+                    } else {
+                      return Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          const Center(
+                            child: CircularProgressIndicator(
+                              color: Colors.deepPurple,
+                            ),
+                          ),
+                          _buildOverlayText(),
+                        ],
+                      );
+                    }
+                  },
                 ),
-              // Status text overlay at bottom
-              Positioned(
-                bottom: 60,
-                left: 20,
-                right: 20,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 16,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.6),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Sending $requestMethod request...',
-                        style: TextStyle(
-                          color: Colors.deepPurple.shade100,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        requestUrl,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                        ),
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOverlayText() {
+    return Positioned(
+      bottom: 60,
+      left: 20,
+      right: 20,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.6),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Sending $requestMethod request...',
+              style: TextStyle(
+                color: Colors.deepPurple.shade100,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              requestUrl,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ),
       ),
     );
